@@ -1,0 +1,61 @@
+# 홈서버 공용 인프라 — Postgres(pgvector) + Ollama
+#
+# 실행 방법
+#   stage (맥북, 개발):  docker compose -f docker-compose.infra.yml up -d postgres
+#                        └ Ollama는 맥북 native 설치본(localhost:11434) 사용 (Metal 이점)
+#   prod  (맥미니, 상시): docker compose -f docker-compose.infra.yml up -d
+#
+# 사전: docker network create home-server-network  (없으면)
+# 사전: cp .env.example .env  후 비밀번호 채우기
+
+name: infra
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg17   # 표준 postgres 17 + pgvector 확장 포함 (Airflow 3.3.0 지원 범위 내)
+    container_name: infra-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD를 .env에 설정하세요}
+      POSTGRES_DB: ${POSTGRES_DB:-postgres}
+      # 앱별 role 비번 (initdb/01-init.sh가 읽어 role 생성)
+      VAULT_RAG_DB_PASSWORD: ${VAULT_RAG_DB_PASSWORD:?VAULT_RAG_DB_PASSWORD를 .env에 설정하세요}
+      AIRFLOW_DB_PASSWORD: ${AIRFLOW_DB_PASSWORD:?AIRFLOW_DB_PASSWORD를 .env에 설정하세요}
+    ports:
+      - "5432:5432"          # stage: 맥북 파이썬이 여기로 붙음
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./initdb:/docker-entrypoint-initdb.d:ro   # 최초 1회 자동 실행 (DB/role/확장 초기화)
+    networks:
+      - home-server-network
+    mem_limit: 1g
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # macOS Docker는 Metal(GPU) 접근 불가 → 이 컨테이너 Ollama는 CPU 전용.
+  #    임베딩(nomic-embed-text, 137M)엔 CPU 충분 → stage/prod 둘 다 컨테이너로 통일(옵션1).
+  #    로컬 LLM 생성(7B+)을 하게 되면 그때 native Ollama(Metal)로 전환 고려.
+  #    최초 1회: docker exec infra-ollama ollama pull nomic-embed-text
+  ollama:
+    image: ollama/ollama:latest
+    container_name: infra-ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama:/root/.ollama
+    networks:
+      - home-server-network
+    mem_limit: 2g
+
+volumes:
+  pgdata:
+  ollama:
+
+networks:
+  home-server-network:
+    external: true   # docker network create home-server-network 로 미리 생성
