@@ -37,9 +37,9 @@ services:
       retries: 5
 
   # macOS Docker는 Metal(GPU) 접근 불가 → 이 컨테이너 Ollama는 CPU 전용.
-  #    임베딩(nomic-embed-text, 137M)엔 CPU 충분 → stage/prod 둘 다 컨테이너로 통일(옵션1).
+  #    임베딩(bge-m3, 568M/1024d, 한국어 대응)엔 CPU 충분 → stage/prod 둘 다 컨테이너로 통일(옵션1).
   #    로컬 LLM 생성(7B+)을 하게 되면 그때 native Ollama(Metal)로 전환 고려.
-  #    최초 1회: docker exec infra-ollama ollama pull nomic-embed-text
+  #    최초 1회: docker exec infra-ollama ollama pull bge-m3
   ollama:
     image: ollama/ollama:latest
     container_name: infra-ollama
@@ -50,7 +50,9 @@ services:
       - ollama:/root/.ollama
     networks:
       - home-server-network
-    mem_limit: 2g
+    # bge-m3(~1.2GB) 로드 + 전체 재인덱싱 배치 피크용. 2g는 재인덱싱 시 99.6%로 무여유(실측)라 OOM 위험 →
+    # 2560m(2.5GiB)로 실측 피크(~2.0GB) 위 ~0.5GB 헤드룸 확보. 평상시(질의)는 ~1.3GB만 사용.
+    mem_limit: 2560m
 
 volumes:
   pgdata:
