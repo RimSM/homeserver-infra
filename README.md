@@ -1,7 +1,8 @@
 # homeserver-infra
 
-홈서버 공용 인프라. Docker Compose로 **Postgres(pgvector) + Ollama** (나중에 Airflow 추가).
-서비스 repo들(`vault-rag`, `trading-bot` …)이 이 공용 인프라를 물어서 씀.
+홈서버 공용 인프라. Docker Compose로 **Postgres(pgvector) + Ollama + cloudflared** (나중에 Airflow 추가).
+서비스 repo들(`vault-rag`, `trading-bot` …)이 이 공용 인프라를 물어서 씀. `cloudflared`는 여러 서비스가
+공유하는 공개 터널 하나 — 새 서비스를 인터넷에 열 땐 `cloudflared/config.yml`의 `ingress`에 줄 추가.
 
 > 설계·결정 맥락은 코드가 아니라 vault에: `01_Projects/99_RIMSM/099.home-server/overview.md`,
 > `004.vault-rag/overview.md`
@@ -14,12 +15,14 @@
 | Postgres | 이 compose로 로컬 기동 | 이 compose로 상시 기동 |
 | Ollama | compose 컨테이너 (CPU) | compose 컨테이너 (CPU) |
 | 실사용 질의 | ✗ (개발 때만) | ✓ 항상 여기로 |
+| cloudflared | ✗ (터널 자격증명 없음) | ✓ (`--profile prod`로만 뜸) |
 
 ## 구성
 
-- `docker-compose.infra.yml` — Postgres(pgvector) + Ollama
+- `docker-compose.infra.yml` — Postgres(pgvector) + Ollama + cloudflared(prod 전용, profile로 게이팅)
 - `initdb/01-init.sh` — 최초 1회: DB 격리(`vault_rag`/`airflow`) + role(`*_app`) + `CREATE EXTENSION vector` + schema `second_brain`. 비번은 `.env`에서 주입(git에 평문 X)
 - `.env.example` — superuser + 앱별 role 비번 (`.env`로 복사해 사용, git 제외)
+- `cloudflared/config.yml` — 공개 터널 ingress 규칙(hostname별 라우팅). 터널 자격증명(JSON)은 여기 없고 호스트 `~/.cloudflared/`에서 ro 마운트
 
 ## 실행
 
@@ -31,8 +34,10 @@ docker network create home-server-network
 cp .env.example .env      # POSTGRES_PASSWORD 채우기
 
 # 3) 기동
-# stage(맥북)·prod(맥미니) 동일: 전체 (postgres + ollama)
-docker compose -f docker-compose.infra.yml up -d
+# stage(맥북): postgres만 (cloudflared는 prod 전용, ollama는 native)
+docker compose -f docker-compose.infra.yml up -d postgres
+# prod(맥미니): 전체 (postgres + ollama + cloudflared)
+docker compose -f docker-compose.infra.yml --profile prod up -d
 # 최초 1회: 임베딩 모델 pull
 docker exec infra-ollama ollama pull nomic-embed-text
 
@@ -52,6 +57,7 @@ psql "postgresql://vault_rag_app@localhost:5432/vault_rag" -c '\dn'   # second_b
 ## TODO
 
 - [x] ollama 컨테이너 기동 + `nomic-embed-text` pull (임베딩 768차원 확인, 2026-07-18)
+- [x] cloudflared를 n8n repo에서 이전 (2026-07-20, 여러 서비스가 공유하는 공용 터널이라 L0 기준)
 - [ ] `.env`에 role 비밀번호 실제 값 채우기 (secret 관리 방식 결정)
 - [ ] Airflow 서비스 추가 (`vault_rag`/`airflow` DB 분리는 이미 반영됨)
 - [ ] GitHub 원격 `homeserver-infra` 생성 후 push

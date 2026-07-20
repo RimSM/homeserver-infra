@@ -1,0 +1,24 @@
+# Cloudflare Tunnel 설정 — 여러 공개 서비스(n8n, vault-rag, ...)가 공유하는 터널 하나.
+# 2026-07-20: n8n repo에서 infra로 이전 (여러 서비스가 꽂아 쓰는 공용 실행 기반이라 L0 기준에 맞춤).
+#
+# 터널 ID는 비밀 아님(공개돼도 무해). 진짜 비밀은 자격증명 JSON
+# (~/.cloudflared/<UUID>.json) — 이 파일은 repo에 없고 컨테이너에 마운트만 함.
+#
+# 터널 재생성 시 아래 UUID와 마운트 경로 둘 다 갱신할 것.
+# 새 공개 서비스 추가 시: 아래 ingress에 hostname 한 줄 추가 + `cloudflared tunnel route dns` +
+#   Cloudflare Access에 해당 hostname용 앱/정책 추가(별도, 대시보드 또는 API).
+
+tunnel: 1af3804c-0c6b-4941-9112-55a2f5083346
+credentials-file: /etc/cloudflared/creds/1af3804c-0c6b-4941-9112-55a2f5083346.json
+
+# 엣지(Cloudflare)에서 TLS가 끝나므로 터널 안쪽은 평문 http로 충분.
+# <서비스명>:<포트> = 같은 docker 네트워크(home-server-network) 안 서비스명 직결 (호스트 포트 안 거침).
+ingress:
+  - hostname: n8n.rimsm.com
+    service: http://n8n:5678
+
+  - hostname: rag.rimsm.com
+    service: http://vault-rag-serve:8787
+
+  # 위에 안 걸리는 요청은 전부 404. (catch-all — 반드시 마지막)
+  - service: http_status:404

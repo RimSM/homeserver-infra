@@ -1,12 +1,14 @@
-# 홈서버 공용 인프라 — Postgres(pgvector) + Ollama
+# 홈서버 공용 인프라 — Postgres(pgvector) + Ollama + cloudflared(공개 터널)
 #
 # 실행 방법
 #   stage (맥북, 개발):  docker compose -f docker-compose.infra.yml up -d postgres
 #                        └ Ollama는 맥북 native 설치본(localhost:11434) 사용 (Metal 이점)
-#   prod  (맥미니, 상시): docker compose -f docker-compose.infra.yml up -d
+#                        └ cloudflared는 prod 전용(터널 자격증명이 맥미니에만 있음) → 아래 --profile prod
+#   prod  (맥미니, 상시): docker compose -f docker-compose.infra.yml --profile prod up -d
 #
 # 사전: docker network create home-server-network  (없으면)
 # 사전: cp .env.example .env  후 비밀번호 채우기
+# 사전(cloudflared, prod만): cloudflared/config.yml의 ingress에 서비스 추가, ~/.cloudflared에 터널 자격증명 JSON 존재해야 함
 
 name: infra
 
@@ -53,6 +55,28 @@ services:
     # bge-m3(~1.2GB) 로드 + 전체 재인덱싱 배치 피크용. 2g는 재인덱싱 시 99.6%로 무여유(실측)라 OOM 위험 →
     # 2560m(2.5GiB)로 실측 피크(~2.0GB) 위 ~0.5GB 헤드룸 확보. 평상시(질의)는 ~1.3GB만 사용.
     mem_limit: 2560m
+
+  # 공개 터널(계층② Cloudflare Tunnel) — 여러 서비스(n8n, vault-rag, ...)가 같은 터널 하나를
+  # 공유해서 씀. 2026-07-20 이전엔 n8n repo 안에 있었으나(n8n이 첫 공개 서비스였을 때 결정,
+  # 그때부터 "low-stakes·가역적, 나중에 옮기면 그만"으로 기록됨), vault-rag가 두 번째로 이
+  # 터널에 얹히면서 "여러 repo가 공유하는 공용 실행 기반" 기준(L0)에 맞게 infra로 이전.
+  # → vault 01_Projects/99_RIMSM/099.home-server/overview.md 결정 히스토리 2026-07-20.
+  #
+  # prod 전용(profiles: prod) — stage 맥북엔 터널 자격증명이 없어서 그냥 up -d 하면 실패함.
+  cloudflared:
+    image: cloudflare/cloudflared:latest      # TODO: 버전 핀 고정 (n8n 때부터 미룬 것)
+    container_name: cloudflared
+    restart: unless-stopped
+    profiles: ["prod"]
+    command: tunnel --no-autoupdate --config /etc/cloudflared/config.yml run
+    volumes:
+      - ./cloudflared/config.yml:/etc/cloudflared/config.yml:ro
+      - ~/.cloudflared:/etc/cloudflared/creds:ro   # 터널 자격증명 (호스트에만 존재, repo에 없음)
+    # 터널은 프록시라 리소스를 거의 안 씀. 실측 유휴: 약 34MB / CPU 0.7% (n8n 시절 2026-07-17 실측)
+    mem_limit: 256m
+    cpus: 0.5
+    networks:
+      - home-server-network
 
 volumes:
   pgdata:
