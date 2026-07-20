@@ -1,0 +1,21 @@
+# Cloudflare Tunnel 설정 — vault-rag 전용 (2026-07-20 신설).
+#
+# n8n 터널과 완전히 분리된 별도 터널. 이유: ① Cloudflare 터널은 CLI에 rename이 없고
+# 대시보드 이름 변경은 비가역 "마이그레이션"을 거쳐야 해서 라벨 정리 목적으로 쓰기 부담스러움
+# → 아예 새 터널로 분리하는 게 더 쌈. ② n8n은 동료도 쓰는 서비스, rag는 개인 전용이라
+# 신뢰 경계도 원래 다름 — 터널 분리가 격리 측면에서도 맞다.
+# → n8n.rimsm.com은 별도 터널: ../cloudflared-n8n/config.yml
+#
+# 터널 ID는 비밀 아님(공개돼도 무해). 진짜 비밀은 자격증명 JSON
+# (~/.cloudflared/<UUID>.json) — 이 파일은 repo에 없고 컨테이너에 마운트만 함.
+
+tunnel: d2e70333-9a89-4e4d-82fe-d2bdee67d071
+credentials-file: /etc/cloudflared/creds/d2e70333-9a89-4e4d-82fe-d2bdee67d071.json
+
+# 엣지(Cloudflare)에서 TLS가 끝나므로 터널 안쪽은 평문 http로 충분.
+ingress:
+  - hostname: rag.rimsm.com
+    service: http://vault-rag-serve:8787
+
+  # 위에 안 걸리는 요청은 전부 404. (catch-all — 반드시 마지막)
+  - service: http_status:404

@@ -8,7 +8,8 @@
 #
 # 사전: docker network create home-server-network  (없으면)
 # 사전: cp .env.example .env  후 비밀번호 채우기
-# 사전(cloudflared, prod만): cloudflared/config.yml의 ingress에 서비스 추가, ~/.cloudflared에 터널 자격증명 JSON 존재해야 함
+# 사전(cloudflared, prod만): cloudflared-n8n/, cloudflared-rag/ 각 config.yml에 자기 터널·자격증명 지정,
+#   ~/.cloudflared에 두 터널의 자격증명 JSON 모두 존재해야 함
 
 name: infra
 
@@ -56,23 +57,37 @@ services:
     # 2560m(2.5GiB)로 실측 피크(~2.0GB) 위 ~0.5GB 헤드룸 확보. 평상시(질의)는 ~1.3GB만 사용.
     mem_limit: 2560m
 
-  # 공개 터널(계층② Cloudflare Tunnel) — 여러 서비스(n8n, vault-rag, ...)가 같은 터널 하나를
-  # 공유해서 씀. 2026-07-20 이전엔 n8n repo 안에 있었으나(n8n이 첫 공개 서비스였을 때 결정,
-  # 그때부터 "low-stakes·가역적, 나중에 옮기면 그만"으로 기록됨), vault-rag가 두 번째로 이
-  # 터널에 얹히면서 "여러 repo가 공유하는 공용 실행 기반" 기준(L0)에 맞게 infra로 이전.
+  # 공개 터널(계층② Cloudflare Tunnel) — 원래 여러 서비스가 터널 하나를 공유했으나(2026-07-20
+  # infra로 이전 직후), Cloudflare 터널에 CLI rename이 없고 대시보드 이름 변경은 비가역
+  # "마이그레이션"을 거쳐야 해서 라벨(대시보드에 "n8n"으로만 표시)이 혼란스러움 + n8n은
+  # 동료도 쓰는 서비스라 신뢰 경계도 다름 → **서비스별로 터널을 완전히 분리**(같은 날 재결정).
   # → vault 01_Projects/99_RIMSM/099.home-server/overview.md 결정 히스토리 2026-07-20.
   #
-  # prod 전용(profiles: prod) — stage 맥북엔 터널 자격증명이 없어서 그냥 up -d 하면 실패함.
-  cloudflared:
+  # 둘 다 prod 전용(profiles: prod) — stage 맥북엔 터널 자격증명이 없어서 그냥 up -d 하면 실패함.
+  cloudflared-n8n:
     image: cloudflare/cloudflared:latest      # TODO: 버전 핀 고정 (n8n 때부터 미룬 것)
-    container_name: cloudflared
+    container_name: cloudflared-n8n
     restart: unless-stopped
     profiles: ["prod"]
     command: tunnel --no-autoupdate --config /etc/cloudflared/config.yml run
     volumes:
-      - ./cloudflared/config.yml:/etc/cloudflared/config.yml:ro
-      - ~/.cloudflared:/etc/cloudflared/creds:ro   # 터널 자격증명 (호스트에만 존재, repo에 없음)
-    # 터널은 프록시라 리소스를 거의 안 씀. 실측 유휴: 약 34MB / CPU 0.7% (n8n 시절 2026-07-17 실측)
+      - ./cloudflared-n8n/config.yml:/etc/cloudflared/config.yml:ro
+      - ~/.cloudflared:/etc/cloudflared/creds:ro   # 터널 자격증명들(호스트에만 존재, repo에 없음). 컨테이너는 자기 config.yml이 가리키는 파일만 씀
+    # 터널은 프록시라 리소스를 거의 안 씀. 실측 유휴: 약 34MB / CPU 0.7% (2026-07-17)
+    mem_limit: 256m
+    cpus: 0.5
+    networks:
+      - home-server-network
+
+  cloudflared-rag:
+    image: cloudflare/cloudflared:latest
+    container_name: cloudflared-rag
+    restart: unless-stopped
+    profiles: ["prod"]
+    command: tunnel --no-autoupdate --config /etc/cloudflared/config.yml run
+    volumes:
+      - ./cloudflared-rag/config.yml:/etc/cloudflared/config.yml:ro
+      - ~/.cloudflared:/etc/cloudflared/creds:ro
     mem_limit: 256m
     cpus: 0.5
     networks:
