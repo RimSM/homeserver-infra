@@ -93,9 +93,86 @@ services:
     networks:
       - home-server-network
 
+  # --- 모니터링 (2026-07-26 신설: Grafana로 인프라 전체 리소스 가시화) ---
+  # 컨테이너별 CPU/RAM/네트워크는 cadvisor가 이 호스트의 모든 컨테이너를 자동 수집.
+  # postgres/ollama/cloudflared 쪽엔 별도 설정 불필요.
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: infra-prometheus
+    restart: unless-stopped
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    networks:
+      - home-server-network
+    mem_limit: 256m
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: infra-grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD를 .env에 설정하세요}
+    volumes:
+      - grafana-data:/var/lib/grafana
+    networks:
+      - home-server-network
+    mem_limit: 256m
+
+  # macOS Docker는 VM 위에서 돌아서 이 exporter가 보는 CPU/RAM은 실제 맥 하드웨어 전체가
+  # 아니라 그 VM 내부 수치임(다른 서비스들과 동일한 제약). 컨테이너별 비교는 cadvisor가 더 정확.
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: infra-node-exporter
+    restart: unless-stopped
+    command:
+      - "--path.procfs=/host/proc"
+      - "--path.sysfs=/host/sys"
+      - "--path.rootfs=/host/root"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/host/root:ro
+    networks:
+      - home-server-network
+    mem_limit: 128m
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    container_name: infra-cadvisor
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    networks:
+      - home-server-network
+    mem_limit: 128m
+
+  # 공개 노출은 grafana만. prometheus/node-exporter/cadvisor는 home-server-network
+  # 내부 전용(호스트 포트 미개방)이라 터널이 따로 필요 없음.
+  cloudflared-grafana:
+    image: cloudflare/cloudflared:latest
+    container_name: cloudflared-grafana
+    restart: unless-stopped
+    profiles: ["prod"]
+    command: tunnel --no-autoupdate --config /etc/cloudflared/config.yml run
+    volumes:
+      - ./cloudflared-grafana/config.yml:/etc/cloudflared/config.yml:ro
+      - ~/.cloudflared:/etc/cloudflared/creds:ro
+    mem_limit: 256m
+    cpus: 0.5
+    networks:
+      - home-server-network
+
 volumes:
   pgdata:
   ollama:
+  prometheus-data:
+  grafana-data:
 
 networks:
   home-server-network:

@@ -1,0 +1,21 @@
+# Cloudflare Tunnel 설정 — Grafana 전용 (2026-07-26 신설).
+#
+# 기존 n8n/rag 터널과 같은 이유로 완전히 분리된 별도 터널로 만듦(../cloudflared-n8n/config.yml,
+# ../cloudflared-rag/config.yml 참고: 터널 rename 불가 + 서비스별 신뢰 경계 분리).
+#
+# 터널 ID는 비밀 아님(공개돼도 무해). 진짜 비밀은 자격증명 JSON
+# (~/.cloudflared/<UUID>.json) — 이 파일은 repo에 없고 컨테이너에 마운트만 함.
+#
+# 2026-07-26: 맥미니 SSH로 `cloudflared tunnel create grafana` + `route dns` 실행 완료
+# (기존 로그인 인증서 재사용, 브라우저 재인증 불필요). DNS CNAME도 이때 자동 생성됨.
+
+tunnel: bb8df47c-00bb-4278-add6-f0e543869b64
+credentials-file: /etc/cloudflared/creds/bb8df47c-00bb-4278-add6-f0e543869b64.json
+
+# 엣지(Cloudflare)에서 TLS가 끝나므로 터널 안쪽은 평문 http로 충분.
+ingress:
+  - hostname: grafana.rimsm.com
+    service: http://grafana:3000
+
+  # 위에 안 걸리는 요청은 전부 404. (catch-all — 반드시 마지막)
+  - service: http_status:404
