@@ -64,8 +64,9 @@ psql "postgresql://vault_rag_app@localhost:5432/vault_rag" -c '\dn'   # second_b
 - [x] cloudflared 터널을 서비스별로 분리 (2026-07-20, 공유 터널의 대시보드 라벨 혼란 + n8n/rag 신뢰 경계 분리)
 - [x] 모니터링 스택(prometheus/grafana/node-exporter/cadvisor) compose에 추가 (2026-07-26, 로컬 POC로 감 본 뒤 반영)
 - [x] grafana 터널 생성 + DNS 라우팅 (2026-07-26, 맥미니 SSH로 `cloudflared tunnel create grafana` + `route dns` 실행, 기존 인증서 재사용)
-- [ ] `.env`에 `GRAFANA_ADMIN_PASSWORD` 강한 값으로 채우기 (공개 터널로 노출되므로 `admin` 등 기본값 금지)
-- [ ] 맥미니에서 `docker compose --profile prod up -d` 재기동해서 grafana.rimsm.com 접속 확인
+- [x] `.env`에 `GRAFANA_ADMIN_USER`/`GRAFANA_ADMIN_PASSWORD` 채우기 + 맥미니 배포·재기동 (2026-07-26, grafana.rimsm.com HTTP 200 확인)
+- [ ] Grafana에 Prometheus 데이터소스(`http://prometheus:9090`) 추가 + 대시보드 import (Node Exporter Full `1860`, cAdvisor `14282`)
+- [ ] grafana.rimsm.com 앞에 Cloudflare Access(n8n처럼 이메일 OTP) 추가 검토 — 지금은 Grafana 자체 로그인만 걸려 있음
 - [ ] `.env`에 role 비밀번호 실제 값 채우기 (secret 관리 방식 결정)
 - [ ] Airflow 서비스 추가 (`vault_rag`/`airflow` DB 분리는 이미 반영됨)
 - [ ] GitHub 원격 `homeserver-infra` 생성 후 push
