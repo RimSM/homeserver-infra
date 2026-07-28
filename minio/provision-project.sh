@@ -31,6 +31,19 @@ ACCESS_KEY="${2:-${PROJECT}-app}"
 CONTAINER="${MINIO_CONTAINER:-infra-minio}"
 POLICY="${PROJECT}-rw"
 
+# 비로그인 셸(`ssh host './provision-project.sh'` 등)에선 PATH에 docker가 없다.
+# 그냥 `docker`를 부르면 "command not found"가 나고, 그걸 컨테이너 미기동으로 오진하게 된다.
+DOCKER="${DOCKER_BIN:-$(command -v docker 2>/dev/null || true)}"
+if [[ -z "$DOCKER" ]]; then
+  for c in /usr/local/bin/docker /opt/homebrew/bin/docker; do
+    if [[ -x "$c" ]]; then DOCKER="$c"; break; fi
+  done
+fi
+if [[ -z "$DOCKER" ]]; then
+  echo "error: docker 실행 파일을 못 찾음. DOCKER_BIN=/path/to/docker 로 지정하거나 PATH를 확인할 것" >&2
+  exit 1
+fi
+
 # 루트 자격증명은 .env에서. (스크립트를 repo 루트 기준으로 실행하든 minio/ 안에서 하든 동작)
 ENV_FILE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/.env"
 if [[ ! -f "$ENV_FILE" ]]; then
@@ -42,7 +55,7 @@ set -a; source "$ENV_FILE"; set +a
 : "${MINIO_ROOT_USER:?.env에 MINIO_ROOT_USER 필요}"
 : "${MINIO_ROOT_PASSWORD:?.env에 MINIO_ROOT_PASSWORD 필요}"
 
-if ! docker ps --format '{{.Names}}' | grep -qx "$CONTAINER"; then
+if ! "$DOCKER" ps --format '{{.Names}}' | grep -qx "$CONTAINER"; then
   echo "error: 컨테이너 '$CONTAINER'가 안 떠 있음" >&2
   echo "  docker compose -f docker-compose.infra.yml up -d minio" >&2
   exit 1
@@ -53,7 +66,7 @@ fi
 # 먼저 닫아 tr이 SIGPIPE로 죽고, set -o pipefail이 그걸 잡아 스크립트가 141로 종료된다.)
 SECRET="$(head -c 512 /dev/urandom | LC_ALL=C base64 | LC_ALL=C tr -dc 'A-Za-z0-9' | cut -c1-40)"
 
-OUT="$(docker exec -i \
+OUT="$("$DOCKER" exec -i \
   -e MC_ROOT_USER="$MINIO_ROOT_USER" \
   -e MC_ROOT_PASS="$MINIO_ROOT_PASSWORD" \
   -e P_PROJECT="$PROJECT" \
