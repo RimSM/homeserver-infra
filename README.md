@@ -80,6 +80,12 @@ s3 = boto3.client("s3",
 | S3 API (공개) | `https://s3.rimsm.com` |
 | 웹 콘솔 (로컬 / 공개) | `http://localhost:9001` / `https://minio.rimsm.com` |
 
+⚠️ **`s3.rimsm.com`으로 받을 땐 User-Agent를 챙길 것.** Cloudflare 봇 보호가 파이썬 기본
+UA(`Python-urllib/3.x`)를 403으로 막는다 — presigned URL을 `urllib`로 그냥 받으면 실패하고,
+같은 URL을 `curl/8.0` UA로 요청하면 200이다(2026-07-28 실측). boto3는 자체 UA를 보내므로
+정상 동작하니, 문제가 되는 건 표준 라이브러리로 presigned URL을 받을 때다. 내부망
+(`http://minio:9000`)은 Cloudflare를 안 거치므로 해당 없음.
+
 ⚠️ **버킷·유저·정책 생성은 반드시 `mc` CLI로.** MinIO 커뮤니티(AGPL) 빌드는 웹 콘솔에서 관리 기능을
 걷어냈다 — `/api/v1/{users,policies,service-accounts}`가 403이 아니라 **404**(바이너리에 경로 자체가 없음),
 `/api/v1/admin/info`는 501. 콘솔에 남은 건 **로그인 + 버킷/객체 브라우저**뿐이다(RELEASE.2025-09-07 실측).
@@ -109,6 +115,7 @@ s3 = boto3.client("s3",
 - [x] MinIO 도입 가능성 검증 (2026-07-28, arm64/S3 API/boto3/presigned/멀티파트/키 격리/메트릭 전부 확인)
 - [x] MinIO compose 서비스 + `provision-project.sh` 추가 (2026-07-28, stage에서 기동·프로비저닝 검증 완료)
 - [x] minio 터널 생성 + DNS 라우팅 (2026-07-28, 맥미니 SSH로 `cloudflared tunnel create minio` + `route dns` 2건, 기존 인증서 재사용)
+- [x] **prod 배포 완료** (2026-07-28) — `s3.rimsm.com`/`minio.rimsm.com` 200, 익명 403, 메트릭 404 차단 확인. boto3로 외부 인터넷 경유 put/get·8MB 멀티파트·presigned URL 검증
 - [x] 맥미니 `.env`에 `MINIO_ROOT_USER`/`MINIO_ROOT_PASSWORD` + `MINIO_BROWSER_REDIRECT_URL=https://minio.rimsm.com` 설정 (2026-07-28)
 - [ ] `minio.rimsm.com`(콘솔) 앞에 Cloudflare Access 추가 검토 — 지금은 MinIO 자체 로그인만. `s3.rimsm.com`(API)은 SigV4라 Access를 걸면 SDK가 깨지므로 대상 아님
 - [ ] MinIO 이미지 버전 핀 고정 (`latest` → 특정 RELEASE 태그)
