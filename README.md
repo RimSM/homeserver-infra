@@ -80,6 +80,11 @@ s3 = boto3.client("s3",
 | S3 API (공개) | `https://s3.rimsm.com` |
 | 웹 콘솔 (로컬 / 공개) | `http://localhost:9001` / `https://minio.rimsm.com` |
 
+> **http 강제 승격**: Cloudflare 존 설정 `Always Use HTTPS`가 켜져 있어(2026-07-29) http 요청은
+> 엣지에서 301로 https에 넘겨진다. 그 전까진 **호스트별 규칙으로만** 걸려 있어서 규칙을 안 만든
+> `minio`/`s3`/`grafana`가 평문으로 서빙되고 있었다(grafana는 7/26부터). 존 전역 설정이라 앞으로
+> 새로 뚫는 터널도 자동 적용된다 — 터널 만들 때 따로 챙길 것 없음.
+
 ⚠️ **`s3.rimsm.com`으로 받을 땐 User-Agent를 챙길 것.** Cloudflare 봇 보호가 파이썬 기본
 UA(`Python-urllib/3.x`)를 403으로 막는다 — presigned URL을 `urllib`로 그냥 받으면 실패하고,
 같은 URL을 `curl/8.0` UA로 요청하면 200이다(2026-07-28 실측). boto3는 자체 UA를 보내므로
