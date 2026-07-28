@@ -57,6 +57,50 @@ services:
     # 2560m(2.5GiB)로 실측 피크(~2.0GB) 위 ~0.5GB 헤드룸 확보. 평상시(질의)는 ~1.3GB만 사용.
     mem_limit: 2560m
 
+  # --- 오브젝트 스토리지 (2026-07-28 신설: S3 대용, 프로젝트별 버킷) ---
+  # S3 API 호환이라 boto3/aws-cli 등 기존 S3 코드가 endpoint_url만 바꾸면 그대로 붙음(검증 완료).
+  # 프로젝트별로 버킷 + 전용 액세스키를 발급해 서로 못 보게 격리하는 게 운용 전제.
+  #
+  # ⚠️ 버킷·유저·정책 생성은 반드시 `mc` CLI로. MinIO 커뮤니티(AGPL) 빌드는 웹 콘솔에서
+  #    관리 기능을 걷어냈음 — /api/v1/{users,policies,service-accounts}가 403이 아니라 **404**
+  #    (바이너리에 경로 자체가 없음), /api/v1/admin/info는 501. 콘솔에 남은 건 로그인 +
+  #    버킷/객체 브라우저뿐(2026-07-28 RELEASE.2025-09-07 실측).
+  #
+  # 최초 1회 프로비저닝 예시(컨테이너 안에서):
+  #   docker exec infra-minio mc alias set local http://localhost:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"
+  #   docker exec infra-minio mc mb -p local/<project>
+  #   docker exec infra-minio mc admin user add local <key> <secret>
+  #   docker exec infra-minio mc admin policy create local <project>-rw /tmp/<project>.json
+  #   docker exec infra-minio mc admin policy attach local <project>-rw --user <key>
+  minio:
+    image: minio/minio:latest   # TODO: 버전 핀 고정 (cloudflared와 같은 숙제)
+    container_name: infra-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?MINIO_ROOT_USER를 .env에 설정하세요}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD를 .env에 설정하세요}
+      # prometheus가 인증 없이 스크랩할 수 있게 공개. 이 메트릭은 9000(S3 API)에 붙어 있고
+      # 9000은 s3.rimsm.com으로 공개되므로, 터널 쪽에서 /minio/v2/metrics 경로를 404로 막았음
+      # (cloudflared-minio/config.yml 참고). prometheus는 내부 네트워크로 직접 긁어서 영향 없음.
+      MINIO_PROMETHEUS_AUTH_TYPE: public
+      # 콘솔이 리버스 프록시 뒤에 있을 때 리다이렉트가 깨지지 않도록 공개 URL을 알려줌.
+      MINIO_BROWSER_REDIRECT_URL: ${MINIO_BROWSER_REDIRECT_URL:-http://localhost:9001}
+    ports:
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # 웹 콘솔
+    volumes:
+      - minio-data:/data
+    networks:
+      - home-server-network
+    # 실측 유휴 290MB(2026-07-28). 업로드 피크 여유 포함해 512m.
+    mem_limit: 512m
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   # 공개 터널(계층② Cloudflare Tunnel) — 원래 여러 서비스가 터널 하나를 공유했으나(2026-07-20
   # infra로 이전 직후), Cloudflare 터널에 CLI rename이 없고 대시보드 이름 변경은 비가역
   # "마이그레이션"을 거쳐야 해서 라벨(대시보드에 "n8n"으로만 표시)이 혼란스러움 + n8n은
@@ -168,11 +212,29 @@ services:
     networks:
       - home-server-network
 
+  # MinIO는 S3 API(s3.rimsm.com)와 콘솔(minio.rimsm.com) 둘 다 공개 — 외부 서비스(n8n 워크플로우
+  # 등)가 버킷에 직접 붙을 수 있게. 호스트네임 2개지만 터널은 하나로 묶음(같은 서비스라 신뢰
+  # 경계가 동일 — n8n/rag를 나눈 이유와 다름).
+  cloudflared-minio:
+    image: cloudflare/cloudflared:latest
+    container_name: cloudflared-minio
+    restart: unless-stopped
+    profiles: ["prod"]
+    command: tunnel --no-autoupdate --config /etc/cloudflared/config.yml run
+    volumes:
+      - ./cloudflared-minio/config.yml:/etc/cloudflared/config.yml:ro
+      - ~/.cloudflared:/etc/cloudflared/creds:ro
+    mem_limit: 256m
+    cpus: 0.5
+    networks:
+      - home-server-network
+
 volumes:
   pgdata:
   ollama:
   prometheus-data:
   grafana-data:
+  minio-data:
 
 networks:
   home-server-network:

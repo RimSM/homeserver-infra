@@ -1,0 +1,37 @@
+# Cloudflare Tunnel 설정 — MinIO 전용 (2026-07-28 신설).
+#
+# 다른 서비스들과 같은 이유로 별도 터널(../cloudflared-n8n/config.yml 참고: 터널 rename 불가).
+# 단 여기선 **호스트네임 2개를 터널 하나에** 묶음 — s3와 콘솔은 같은 MinIO 인스턴스라
+# 신뢰 경계가 동일해서, n8n/rag를 나눴던 이유(서로 다른 서비스·다른 사용자)가 적용되지 않음.
+#
+# 터널 ID는 비밀 아님(공개돼도 무해). 진짜 비밀은 자격증명 JSON
+# (~/.cloudflared/<UUID>.json) — 이 파일은 repo에 없고 컨테이너에 마운트만 함.
+#
+# 2026-07-28: 맥미니 SSH로 `cloudflared tunnel create minio` + `route dns` 2건 실행 완료
+# (기존 로그인 인증서 재사용, 브라우저 재인증 불필요). DNS CNAME 2개도 이때 자동 생성됨.
+
+tunnel: 19ddff30-18f5-481c-9e73-f2525523cb04
+credentials-file: /etc/cloudflared/creds/19ddff30-18f5-481c-9e73-f2525523cb04.json
+
+# 엣지(Cloudflare)에서 TLS가 끝나므로 터널 안쪽은 평문 http로 충분.
+ingress:
+  # MinIO 메트릭은 9000(S3 API)에 붙어 있고 MINIO_PROMETHEUS_AUTH_TYPE=public이라 인증이
+  # 없음 → S3 API를 공개하면 메트릭도 같이 공개돼버림. 경로만 404로 막는다.
+  # prometheus는 내부 네트워크(minio:9000)로 직접 긁으므로 이 규칙의 영향을 안 받음.
+  # (더 구체적인 규칙이 먼저 와야 하므로 아래 catch-all보다 위)
+  - hostname: s3.rimsm.com
+    path: ^/minio/v2/metrics
+    service: http_status:404
+
+  # S3 API — 외부 프로그램이 boto3/aws-cli로 붙는 엔드포인트.
+  # 인증은 MinIO 자체 서명(AWS SigV4)이라 액세스키 없이는 아무것도 안 됨.
+  - hostname: s3.rimsm.com
+    service: http://minio:9000
+
+  # 웹 콘솔 — 로그인(form + 세션 쿠키) 후 버킷/객체 브라우저.
+  # 커뮤니티 빌드라 유저·정책 관리 기능은 콘솔에 없음(mc CLI로).
+  - hostname: minio.rimsm.com
+    service: http://minio:9001
+
+  # 위에 안 걸리는 요청은 전부 404. (catch-all — 반드시 마지막)
+  - service: http_status:404
