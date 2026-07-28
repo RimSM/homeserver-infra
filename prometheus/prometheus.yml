@@ -13,3 +13,11 @@ scrape_configs:
   - job_name: cadvisor
     static_configs:
       - targets: ["cadvisor:8080"]
+
+  # MinIO 스토리지 사용량·객체 수 (컨테이너 CPU/RAM은 cadvisor가 이미 잡음).
+  # MINIO_PROMETHEUS_AUTH_TYPE=public이라 인증 불필요. 내부 네트워크로 직접 스크랩하므로
+  # 터널의 /minio/v2/metrics 차단 규칙과 무관하다.
+  - job_name: minio
+    metrics_path: /minio/v2/metrics/cluster
+    static_configs:
+      - targets: ["minio:9000"]
